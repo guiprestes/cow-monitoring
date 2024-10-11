@@ -1,20 +1,23 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <Adafruit_Sensor.h>
 #include <Adafruit_ADXL345_U.h>
 #include <Adafruit_BMP280.h>
 #include <LoRa.h>
+#include <math.h>
 
 #define LORA_SS 18
 #define LORA_RST 14
 #define LORA_DI0 26
-#define LORA_SCK 5
-#define LORA_MISO 19
-#define LORA_MOSI 27
 
 Adafruit_ADXL345_Unified adxl = Adafruit_ADXL345_Unified(12345);
 Adafruit_BMP280 bmp;
+
+QueueHandle_t xQueueAccelData;
+QueueHandle_t xQueueAcXAxisData;
+QueueHandle_t xQueueAcYAxisData;
+QueueHandle_t xQueueAcZAxisData;
+QueueHandle_t xQueueTempData;
 
 void initSensors() {
   if (!adxl.begin(0x53)) {
@@ -29,35 +32,71 @@ void initSensors() {
 }
 
 void readADXL345(void *pvParameters) {
-  sensors_event_t event;
   while (1) {
-    adxl.getEvent(&event);
-    Serial.print("Acelerometro X: "); Serial.println(event.acceleration.x);
-    Serial.print("Acelerometro Y: "); Serial.println(event.acceleration.y);
-    Serial.print("Acelerometro Z: "); Serial.println(event.acceleration.z);
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    double xAxis = adxl.getX();
+    double yAxis = adxl.getY();
+    double zAxis = adxl.getZ();
+    double accelMovement = sqrt((adxl.getX() * adxl.getX())  + (adxl.getY() * adxl.getY()) + (adxl.getZ() * adxl.getZ()));
+
+    if(xQueueSend(xQueueAccelData, &accelMovement, portMAX_DELAY) != pdPASS) {
+      Serial.println("Erro ao enviar valores do sensor para a fila.");
+    }
+    if(xQueueSend(xQueueAcXAxisData, &xAxis, portMAX_DELAY) != pdPASS) {
+      Serial.println("Erro ao enviar valores do eixo x para a fila.");
+    }
+    if(xQueueSend(xQueueAcYAxisData, &yAxis, portMAX_DELAY) != pdPASS) {
+      Serial.println("Erro ao enviar valores do eixo y para a fila.");
+    }
+    if(xQueueSend(xQueueAcZAxisData, &zAxis, portMAX_DELAY) != pdPASS) {
+      Serial.println("Erro ao enviar valores do eixo z para a fila.");
+    }
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
 
 void readBMP280(void *pvParameters) {
   while(1) {
-    float temperature = bmp.readTemperature();
-    Serial.print("Temperatura: ");
-    Serial.println(temperature);
-    Serial.println(" ºC");
-    vTaskDelay(60000 / portTICK_PERIOD_MS);
+    double readTemperature = bmp.readTemperature();
+
+    if(xQueueSend(xQueueTempData, &readTemperature, portMAX_DELAY) != pdPASS) {
+      Serial.println("Erro ao enviar valores de temperatura para a fila.");
+    }
+
+    LoRa.beginPacket();
+    LoRa.print(readTemperature);
+    LoRa.endPacket();
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
 
-void sendData(void *pvParameters) {
+void sendLora(void *pvParameters) {
+  String accelAxisData;
+  double temperatureData, accelData, accelXData, accelYData, accelZData;
   while(1) {
-    String sensorData = "X: " + String(adxl.getX()) + " Y:" + String(adxl.getY()) + " Z:" + String(adxl.getZ()) +
-            " Temperatura: " + String(bmp.readTemperature());
+
+    xQueueReceive(xQueueAccelData, &accelData, portMAX_DELAY);
+    xQueueReceive(xQueueTempData, &temperatureData, portMAX_DELAY);
+    xQueueReceive(xQueueAcXAxisData, &accelXData, portMAX_DELAY);
+    xQueueReceive(xQueueAcYAxisData, &accelYData, portMAX_DELAY);
+    xQueueReceive(xQueueAcZAxisData, &accelZData, portMAX_DELAY);
+
+    String loraPayload =
+            "{\"temperatura\":" + String(temperatureData) +
+            ",\"accel\":" + String(accelData) +
+            ",\"axisX\":" + String(accelXData) +
+            ",\"axisY\":" + String(accelYData) +
+            ",\"axisZ\":" + String(accelZData) +
+            "}";
+
+    Serial.println("");
+    Serial.println("LoRa Packet: ");
+    Serial.print(loraPayload);
+
     LoRa.beginPacket();
-    LoRa.print(sensorData);
+    LoRa.print(loraPayload);
     LoRa.endPacket();
-    Serial.println("Dados Enviados!");
-    vTaskDelay(5000/portTICK_PERIOD_MS);
+
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -94,6 +133,16 @@ void I2CScanner() {
 void setup() {
   Serial.begin(115200);
 
+  xQueueAccelData = xQueueCreate(5, sizeof(double));
+  xQueueTempData = xQueueCreate(5, sizeof(double));
+  xQueueAcXAxisData = xQueueCreate(5, sizeof(double));
+  xQueueAcYAxisData = xQueueCreate(5, sizeof(double));
+  xQueueAcZAxisData = xQueueCreate(5, sizeof(double));
+  if (xQueueAccelData == NULL || xQueueTempData == NULL || xQueueAcXAxisData == NULL || xQueueAcYAxisData == NULL || xQueueAcZAxisData == NULL) {
+    Serial.print("Erro ao criar a fila.");
+    while (1);
+  }
+
   initSensors();
   //I2CScanner();
 
@@ -104,9 +153,9 @@ void setup() {
   }
   Serial.println("LoRa inicializado");
 
-  xTaskCreate(readADXL345, "Task_ADXL345", 4096, NULL, 1, NULL);
+  xTaskCreate(readADXL345, "Task_ADXL345", 2048, NULL, 2, NULL);
   xTaskCreate(readBMP280, "Task_BMP280", 2048, NULL, 1, NULL);
-  xTaskCreate(sendData, "Task_LoRa", 2048, NULL, 2, NULL);
+  xTaskCreate(sendLora, "Task_sendLora", 2048, NULL, 3, NULL);
 }
 
 void loop(){}
