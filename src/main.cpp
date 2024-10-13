@@ -10,6 +10,8 @@
 #define LORA_RST 14
 #define LORA_DI0 26
 
+const int LedLoraPin = 23;
+
 Adafruit_ADXL345_Unified adxl = Adafruit_ADXL345_Unified(12345);
 Adafruit_BMP280 bmp;
 
@@ -72,6 +74,10 @@ void readBMP280(void *pvParameters) {
 void sendLora(void *pvParameters) {
   String accelAxisData;
   double temperatureData, accelData, accelXData, accelYData, accelZData;
+  
+  int getTime = millis();
+  int nodeId = 1;
+  
   while(1) {
 
     xQueueReceive(xQueueAccelData, &accelData, portMAX_DELAY);
@@ -81,6 +87,9 @@ void sendLora(void *pvParameters) {
     xQueueReceive(xQueueAcZAxisData, &accelZData, portMAX_DELAY);
 
     String loraPayload =
+            "{\"nodeID\":" + String(nodeId) +
+            ",\"time\":" + String(getTime) +
+            ",\"temperature\":" + String(temperatureData) +
             "{\"temperatura\":" + String(temperatureData) +
             ",\"accel\":" + String(accelData) +
             ",\"axisX\":" + String(accelXData) +
@@ -91,11 +100,17 @@ void sendLora(void *pvParameters) {
     Serial.println("");
     Serial.println("LoRa Packet: ");
     Serial.print(loraPayload);
+    Serial.print("");
 
     LoRa.beginPacket();
     LoRa.print(loraPayload);
     LoRa.endPacket();
 
+    digitalWrite(LedLoraPin, HIGH);
+    delay(500);
+    digitalWrite(LedLoraPin, LOW);
+
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
@@ -133,6 +148,9 @@ void I2CScanner() {
 void setup() {
   Serial.begin(115200);
 
+  pinMode(LedLoraPin, OUTPUT);
+  digitalWrite(LedLoraPin, LOW);
+  
   xQueueAccelData = xQueueCreate(5, sizeof(double));
   xQueueTempData = xQueueCreate(5, sizeof(double));
   xQueueAcXAxisData = xQueueCreate(5, sizeof(double));
