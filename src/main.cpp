@@ -74,9 +74,10 @@ void readBMP280(void *pvParameters) {
 void sendLora(void *pvParameters) {
   String accelAxisData;
   double temperatureData, accelData, accelXData, accelYData, accelZData;
+  
   int getTime = millis();
   int nodeId = 1;
-
+  
   while(1) {
 
     xQueueReceive(xQueueAccelData, &accelData, portMAX_DELAY);
@@ -89,6 +90,7 @@ void sendLora(void *pvParameters) {
             "{\"nodeID\":" + String(nodeId) +
             ",\"time\":" + String(getTime) +
             ",\"temperature\":" + String(temperatureData) +
+            "{\"temperatura\":" + String(temperatureData) +
             ",\"accel\":" + String(accelData) +
             ",\"axisX\":" + String(accelXData) +
             ",\"axisY\":" + String(accelYData) +
@@ -109,6 +111,7 @@ void sendLora(void *pvParameters) {
     digitalWrite(LedLoraPin, LOW);
 
     vTaskDelay(10000 / portTICK_PERIOD_MS);
+    vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -147,7 +150,7 @@ void setup() {
 
   pinMode(LedLoraPin, OUTPUT);
   digitalWrite(LedLoraPin, LOW);
-
+  
   xQueueAccelData = xQueueCreate(5, sizeof(double));
   xQueueTempData = xQueueCreate(5, sizeof(double));
   xQueueAcXAxisData = xQueueCreate(5, sizeof(double));
