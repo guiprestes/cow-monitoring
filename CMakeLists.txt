@@ -1,3 +1,15 @@
 cmake_minimum_required(VERSION 3.16.0)
+
+set(__get_git_revision_description YES)
+function(get_git_head_revision _refspecvar _hashvar _repo_dir)
+    set(${_refspecvar} "v5.3.1" PARENT_SCOPE)
+    set(${_hashvar} "0000000" PARENT_SCOPE)
+endfunction()
+function(git_describe _var _repo_dir)
+    set(${_var} "v5.3.1" PARENT_SCOPE)
+endfunction()
+function(git_submodule_check _repo_dir)
+endfunction()
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(untitled)
+project(cow_monitoring)
